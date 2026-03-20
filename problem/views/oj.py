@@ -1,9 +1,10 @@
 import random
 from django.db.models import Q, Count
-from utils.api import APIView
-from account.decorators import check_contest_permission
-from ..models import ProblemTag, Problem, ProblemRuleType
-from ..serializers import ProblemSerializer, TagSerializer, ProblemSafeSerializer
+from utils.api import APIView, validate_serializer
+from account.decorators import check_contest_permission, login_required, super_admin_required
+from options.options import SysOptions
+from ..models import ProblemTag, Problem, ProblemRuleType, Comment
+from ..serializers import ProblemSerializer, TagSerializer, ProblemSafeSerializer, CreateCommentSerializer, CommentSerializer
 from contest.models import ContestRuleType
 
 
@@ -118,3 +119,44 @@ class ContestProblemAPI(APIView):
         else:
             data = ProblemSafeSerializer(contest_problems, many=True).data
         return self.success(data)
+
+
+class CommentAPI(APIView):
+    def get(self, request):
+        problem_id = request.GET.get("problem_id")
+        if not problem_id:
+            return self.error("problem_id is required")
+        if not SysOptions.comment_enabled:
+            return self.success({"results": [], "comment_enabled": False})
+        comments = Comment.objects.filter(problem_id=problem_id).select_related("user")
+        data = self.paginate_data(request, comments, CommentSerializer)
+        data["comment_enabled"] = True
+        return self.success(data)
+
+    @login_required
+    @validate_serializer(CreateCommentSerializer)
+    def post(self, request):
+        if not SysOptions.comment_enabled:
+            return self.error("Comment is disabled")
+        data = request.data
+        try:
+            problem = Problem.objects.get(id=data["problem_id"], visible=True)
+        except Problem.DoesNotExist:
+            return self.error("Problem does not exist")
+        Comment.objects.create(
+            problem=problem,
+            user=request.user,
+            content=data["content"]
+        )
+        return self.success()
+
+    @super_admin_required
+    def delete(self, request):
+        comment_id = request.GET.get("id")
+        if not comment_id:
+            return self.error("id is required")
+        try:
+            Comment.objects.get(id=comment_id).delete()
+        except Comment.DoesNotExist:
+            return self.error("Comment does not exist")
+        return self.success()

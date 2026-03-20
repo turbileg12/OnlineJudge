@@ -7,7 +7,7 @@ from utils.api import UsernameSerializer, serializers
 from utils.constants import Difficulty
 from utils.serializers import LanguageNameMultiChoiceField, SPJLanguageNameChoiceField, LanguageNameChoiceField
 
-from .models import Problem, ProblemRuleType, ProblemTag, ProblemIOMode
+from .models import Problem, ProblemRuleType, ProblemTag, ProblemIOMode, Comment
 from .utils import parse_problem_template
 
 
@@ -255,6 +255,22 @@ class ImportProblemSerializer(serializers.Serializer):
     source = serializers.CharField(max_length=200, allow_blank=True, allow_null=True)
     answers = serializers.ListField(child=AnswerSerializer())
     tags = serializers.ListField(child=serializers.CharField())
+
+
+class CreateCommentSerializer(serializers.Serializer):
+    problem_id = serializers.IntegerField()
+    content = serializers.CharField(max_length=10000)
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Comment
+        fields = ("id", "problem_id", "content", "create_time", "created_by")
+
+    def get_created_by(self, obj):
+        return obj.user.username
 
 
 class FPSProblemSerializer(serializers.Serializer):

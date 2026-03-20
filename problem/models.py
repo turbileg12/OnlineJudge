@@ -94,3 +94,14 @@ class Problem(models.Model):
     def add_ac_number(self):
         self.accepted_number = models.F("accepted_number") + 1
         self.save(update_fields=["accepted_number"])
+
+
+class Comment(models.Model):
+    problem = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name="comments")
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    content = models.TextField()
+    create_time = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "comment"
+        ordering = ("-create_time",)

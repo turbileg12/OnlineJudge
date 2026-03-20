@@ -99,6 +99,7 @@ class OptionKeys:
     website_footer = "website_footer"
     allow_register = "allow_register"
     submission_list_show_all = "submission_list_show_all"
+    comment_enabled = "comment_enabled"
     smtp_config = "smtp_config"
     judge_server_token = "judge_server_token"
     throttling = "throttling"
@@ -112,6 +113,7 @@ class OptionDefaultValue:
     website_footer = "Online Judge Footer"
     allow_register = True
     submission_list_show_all = True
+    comment_enabled = True
     smtp_config = {}
     judge_server_token = default_token
     throttling = {"ip": {"capacity": 100, "fill_rate": 0.1, "default_capacity": 50},
@@ -228,6 +230,14 @@ class _SysOptionsMeta(type):
     @submission_list_show_all.setter
     def submission_list_show_all(cls, value):
         cls._set_option(OptionKeys.submission_list_show_all, value)
+
+    @my_property
+    def comment_enabled(cls):
+        return cls._get_option(OptionKeys.comment_enabled)
+
+    @comment_enabled.setter
+    def comment_enabled(cls, value):
+        cls._set_option(OptionKeys.comment_enabled, value)
 
     @my_property
     def smtp_config(cls):
