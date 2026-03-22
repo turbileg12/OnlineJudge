@@ -160,6 +160,73 @@ class TestCaseAPI(CSRFExemptAPIView, TestCaseZipProcessor):
         return self.success({"id": test_case_id, "info": info, "spj": spj})
 
 
+class ManualTestCaseAPI(CSRFExemptAPIView):
+    @problem_permission_required
+    def post(self, request):
+        data = request.data
+        test_cases = data.get("test_cases")
+        spj = data.get("spj", False)
+        existing_test_case_id = data.get("test_case_id")
+        if not test_cases or not isinstance(test_cases, list):
+            return self.error("Invalid test cases")
+
+        # If existing test_case_id provided, append to it
+        if existing_test_case_id:
+            test_case_id = existing_test_case_id
+            test_case_dir = os.path.join(settings.TEST_CASE_DIR, test_case_id)
+            if not os.path.isdir(test_case_dir):
+                return self.error("Test case directory does not exist")
+            # Load existing info
+            info_path = os.path.join(test_case_dir, "info")
+            with open(info_path, "r", encoding="utf-8") as f:
+                test_case_info = json.loads(f.read())
+            existing_count = len(test_case_info["test_cases"])
+            info = []
+            for key in sorted(test_case_info["test_cases"].keys(), key=int):
+                info.append(test_case_info["test_cases"][key])
+        else:
+            test_case_id = rand_str()
+            test_case_dir = os.path.join(settings.TEST_CASE_DIR, test_case_id)
+            os.mkdir(test_case_dir)
+            os.chmod(test_case_dir, 0o710)
+            test_case_info = {"spj": spj, "test_cases": {}}
+            info = []
+            existing_count = 0
+
+        for index, tc in enumerate(test_cases):
+            new_index = existing_count + index + 1
+            input_content = tc.get("input", "").replace("\r\n", "\n").encode("utf-8")
+            in_name = f"{new_index}.in"
+            with open(os.path.join(test_case_dir, in_name), "wb") as f:
+                f.write(input_content)
+
+            if spj:
+                data_item = {"input_name": in_name, "input_size": len(input_content)}
+            else:
+                output_content = tc.get("output", "").replace("\r\n", "\n").encode("utf-8")
+                out_name = f"{new_index}.out"
+                with open(os.path.join(test_case_dir, out_name), "wb") as f:
+                    f.write(output_content)
+                data_item = {
+                    "stripped_output_md5": hashlib.md5(output_content.rstrip()).hexdigest(),
+                    "input_size": len(input_content),
+                    "output_size": len(output_content),
+                    "input_name": in_name,
+                    "output_name": out_name
+                }
+
+            info.append(data_item)
+            test_case_info["test_cases"][str(new_index)] = data_item
+
+        with open(os.path.join(test_case_dir, "info"), "w", encoding="utf-8") as f:
+            f.write(json.dumps(test_case_info, indent=4))
+
+        for item in os.listdir(test_case_dir):
+            os.chmod(os.path.join(test_case_dir, item), 0o640)
+
+        return self.success({"id": test_case_id, "info": info, "spj": spj})
+
+
 class CompileSPJAPI(APIView):
     @validate_serializer(CompileSPJSerializer)
     def post(self, request):
