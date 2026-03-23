@@ -248,6 +248,80 @@ class TestCaseContentAPI(APIView):
         return self.success({"filename": filename, "content": content})
 
 
+class DeleteTestCaseAPI(APIView):
+    def post(self, request):
+        test_case_id = request.data.get("test_case_id")
+        input_name = request.data.get("input_name")
+        if not test_case_id or not input_name:
+            return self.error("test_case_id and input_name are required")
+
+        test_case_dir = os.path.join(settings.TEST_CASE_DIR, test_case_id)
+        info_path = os.path.join(test_case_dir, "info")
+        if not os.path.isdir(test_case_dir) or not os.path.isfile(info_path):
+            return self.error("Test case does not exist")
+
+        with open(info_path, "r", encoding="utf-8") as f:
+            test_case_info = json.loads(f.read())
+
+        spj = test_case_info.get("spj", False)
+
+        # Find and remove the target test case
+        target_key = None
+        for key, val in test_case_info["test_cases"].items():
+            if val["input_name"] == input_name:
+                target_key = key
+                break
+        if not target_key:
+            return self.error("Test case not found")
+
+        target = test_case_info["test_cases"].pop(target_key)
+
+        # Delete files
+        in_path = os.path.join(test_case_dir, target["input_name"])
+        if os.path.isfile(in_path):
+            os.remove(in_path)
+        if not spj and "output_name" in target:
+            out_path = os.path.join(test_case_dir, target["output_name"])
+            if os.path.isfile(out_path):
+                os.remove(out_path)
+
+        # Renumber remaining test cases: 1, 2, 3, ...
+        old_cases = sorted(test_case_info["test_cases"].values(),
+                           key=lambda x: natural_sort_key(x["input_name"]))
+        new_test_cases = {}
+        info = []
+        for idx, case in enumerate(old_cases):
+            new_idx = idx + 1
+            old_in = case["input_name"]
+            new_in = f"{new_idx}.in"
+
+            # Rename .in file
+            old_in_path = os.path.join(test_case_dir, old_in)
+            new_in_path = os.path.join(test_case_dir, new_in)
+            if old_in != new_in and os.path.isfile(old_in_path):
+                os.rename(old_in_path, new_in_path)
+            case["input_name"] = new_in
+
+            if not spj and "output_name" in case:
+                old_out = case["output_name"]
+                new_out = f"{new_idx}.out"
+                old_out_path = os.path.join(test_case_dir, old_out)
+                new_out_path = os.path.join(test_case_dir, new_out)
+                if old_out != new_out and os.path.isfile(old_out_path):
+                    os.rename(old_out_path, new_out_path)
+                case["output_name"] = new_out
+
+            new_test_cases[str(new_idx)] = case
+            info.append(case)
+
+        test_case_info["test_cases"] = new_test_cases
+
+        with open(info_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(test_case_info, indent=4))
+
+        return self.success({"info": info})
+
+
 class CompileSPJAPI(APIView):
     @validate_serializer(CompileSPJSerializer)
     def post(self, request):
