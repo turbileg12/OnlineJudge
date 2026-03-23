@@ -227,6 +227,27 @@ class ManualTestCaseAPI(CSRFExemptAPIView):
         return self.success({"id": test_case_id, "info": info, "spj": spj})
 
 
+class TestCaseContentAPI(APIView):
+    def get(self, request):
+        test_case_id = request.GET.get("test_case_id")
+        filename = request.GET.get("filename")
+        if not test_case_id or not filename:
+            return self.error("test_case_id and filename are required")
+        # Prevent directory traversal
+        if "/" in filename or "\\" in filename or ".." in filename:
+            return self.error("Invalid filename")
+        test_case_dir = os.path.join(settings.TEST_CASE_DIR, test_case_id)
+        file_path = os.path.join(test_case_dir, filename)
+        if not os.path.isfile(file_path):
+            return self.error("File does not exist")
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            return self.error(str(e))
+        return self.success({"filename": filename, "content": content})
+
+
 class CompileSPJAPI(APIView):
     @validate_serializer(CompileSPJSerializer)
     def post(self, request):
