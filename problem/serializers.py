@@ -51,7 +51,7 @@ class CreateOrEditProblemSerializer(serializers.Serializer):
     description = serializers.CharField()
     input_description = serializers.CharField()
     output_description = serializers.CharField()
-    samples = serializers.ListField(child=CreateSampleSerializer(), allow_empty=False)
+    samples = serializers.ListField(child=CreateSampleSerializer(), allow_empty=True)
     test_case_id = serializers.CharField(max_length=32)
     test_case_score = serializers.ListField(child=CreateTestCaseScoreSerializer(), allow_empty=True)
     time_limit = serializers.IntegerField(min_value=1, max_value=1000 * 60)
@@ -70,6 +70,7 @@ class CreateOrEditProblemSerializer(serializers.Serializer):
     hint = serializers.CharField(allow_blank=True, allow_null=True)
     source = serializers.CharField(max_length=256, allow_blank=True, allow_null=True)
     share_submission = serializers.BooleanField()
+    description_pdf = serializers.CharField(allow_blank=True, allow_null=True, required=False)
 
 
 class CreateProblemSerializer(CreateOrEditProblemSerializer):
