@@ -10,6 +10,9 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.http import StreamingHttpResponse, FileResponse
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import View
 
 from account.decorators import problem_permission_required, ensure_created_by
 from contest.models import Contest, ContestStatus
@@ -160,15 +163,57 @@ class TestCaseAPI(CSRFExemptAPIView, TestCaseZipProcessor):
         return self.success({"id": test_case_id, "info": info, "spj": spj})
 
 
+class MultiPartParser(object):
+    content_type = "multipart/form-data"
+
+    @staticmethod
+    def parse(body):
+        return {}
+
+
 class ManualTestCaseAPI(CSRFExemptAPIView):
+    request_parsers = (MultiPartParser,)
+
+    @method_decorator(csrf_exempt)
+    def dispatch(self, request, *args, **kwargs):
+        content_type = request.META.get("CONTENT_TYPE", "")
+        if content_type.startswith("multipart/form-data"):
+            # Skip body parsing for multipart; Django handles FILES/POST natively
+            request.data = request.POST
+        else:
+            request.data = json.loads(request.body.decode("utf-8")) if request.body else {}
+        try:
+            return View.dispatch(self, request, *args, **kwargs)
+        except APIError as e:
+            ret = {"msg": e.msg}
+            if e.err:
+                ret["err"] = e.err
+            return self.error(**ret)
+        except Exception as e:
+            return self.server_error()
+
     @problem_permission_required
     def post(self, request):
-        data = request.data
-        test_cases = data.get("test_cases")
-        spj = data.get("spj", False)
-        existing_test_case_id = data.get("test_case_id")
-        if not test_cases or not isinstance(test_cases, list):
-            return self.error("Invalid test cases")
+        # Support both file upload (multipart) and JSON body
+        input_files = request.FILES.getlist("input_files")
+        output_files = request.FILES.getlist("output_files")
+
+        if input_files:
+            # File upload mode
+            spj_raw = request.POST.get("spj", "false")
+            spj = spj_raw in (True, "true", "True")
+            existing_test_case_id = request.POST.get("test_case_id")
+
+            if not spj and len(output_files) != len(input_files):
+                return self.error("Number of input and output files must match")
+        else:
+            # Legacy JSON mode
+            data = request.data
+            test_cases = data.get("test_cases")
+            spj = data.get("spj", False)
+            existing_test_case_id = data.get("test_case_id")
+            if not test_cases or not isinstance(test_cases, list):
+                return self.error("Invalid test cases")
 
         # If existing test_case_id provided, append to it
         if existing_test_case_id:
@@ -176,7 +221,6 @@ class ManualTestCaseAPI(CSRFExemptAPIView):
             test_case_dir = os.path.join(settings.TEST_CASE_DIR, test_case_id)
             if not os.path.isdir(test_case_dir):
                 return self.error("Test case directory does not exist")
-            # Load existing info
             info_path = os.path.join(test_case_dir, "info")
             with open(info_path, "r", encoding="utf-8") as f:
                 test_case_info = json.loads(f.read())
@@ -193,30 +237,58 @@ class ManualTestCaseAPI(CSRFExemptAPIView):
             info = []
             existing_count = 0
 
-        for index, tc in enumerate(test_cases):
-            new_index = existing_count + index + 1
-            input_content = tc.get("input", "").replace("\r\n", "\n").encode("utf-8")
-            in_name = f"{new_index}.in"
-            with open(os.path.join(test_case_dir, in_name), "wb") as f:
-                f.write(input_content)
+        if input_files:
+            # File upload mode
+            for index, input_file in enumerate(input_files):
+                new_index = existing_count + index + 1
+                input_content = input_file.read().replace(b"\r\n", b"\n")
+                in_name = f"{new_index}.in"
+                with open(os.path.join(test_case_dir, in_name), "wb") as f:
+                    f.write(input_content)
 
-            if spj:
-                data_item = {"input_name": in_name, "input_size": len(input_content)}
-            else:
-                output_content = tc.get("output", "").replace("\r\n", "\n").encode("utf-8")
-                out_name = f"{new_index}.out"
-                with open(os.path.join(test_case_dir, out_name), "wb") as f:
-                    f.write(output_content)
-                data_item = {
-                    "stripped_output_md5": hashlib.md5(output_content.rstrip()).hexdigest(),
-                    "input_size": len(input_content),
-                    "output_size": len(output_content),
-                    "input_name": in_name,
-                    "output_name": out_name
-                }
+                if spj:
+                    data_item = {"input_name": in_name, "input_size": len(input_content)}
+                else:
+                    output_content = output_files[index].read().replace(b"\r\n", b"\n")
+                    out_name = f"{new_index}.out"
+                    with open(os.path.join(test_case_dir, out_name), "wb") as f:
+                        f.write(output_content)
+                    data_item = {
+                        "stripped_output_md5": hashlib.md5(output_content.rstrip()).hexdigest(),
+                        "input_size": len(input_content),
+                        "output_size": len(output_content),
+                        "input_name": in_name,
+                        "output_name": out_name
+                    }
 
-            info.append(data_item)
-            test_case_info["test_cases"][str(new_index)] = data_item
+                info.append(data_item)
+                test_case_info["test_cases"][str(new_index)] = data_item
+        else:
+            # Legacy JSON mode
+            for index, tc in enumerate(test_cases):
+                new_index = existing_count + index + 1
+                input_content = tc.get("input", "").replace("\r\n", "\n").encode("utf-8")
+                in_name = f"{new_index}.in"
+                with open(os.path.join(test_case_dir, in_name), "wb") as f:
+                    f.write(input_content)
+
+                if spj:
+                    data_item = {"input_name": in_name, "input_size": len(input_content)}
+                else:
+                    output_content = tc.get("output", "").replace("\r\n", "\n").encode("utf-8")
+                    out_name = f"{new_index}.out"
+                    with open(os.path.join(test_case_dir, out_name), "wb") as f:
+                        f.write(output_content)
+                    data_item = {
+                        "stripped_output_md5": hashlib.md5(output_content.rstrip()).hexdigest(),
+                        "input_size": len(input_content),
+                        "output_size": len(output_content),
+                        "input_name": in_name,
+                        "output_name": out_name
+                    }
+
+                info.append(data_item)
+                test_case_info["test_cases"][str(new_index)] = data_item
 
         with open(os.path.join(test_case_dir, "info"), "w", encoding="utf-8") as f:
             f.write(json.dumps(test_case_info, indent=4))

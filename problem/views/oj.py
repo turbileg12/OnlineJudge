@@ -150,13 +150,16 @@ class CommentAPI(APIView):
         )
         return self.success()
 
-    @super_admin_required
+    @login_required
     def delete(self, request):
         comment_id = request.GET.get("id")
         if not comment_id:
             return self.error("id is required")
         try:
-            Comment.objects.get(id=comment_id).delete()
+            comment = Comment.objects.get(id=comment_id)
         except Comment.DoesNotExist:
             return self.error("Comment does not exist")
+        if comment.user != request.user and not request.user.is_super_admin():
+            return self.error("You can only delete your own comments")
+        comment.delete()
         return self.success()
