@@ -12,10 +12,10 @@ from .models import SysOptions as SysOptionsModel
 
 class my_property:
     """
-    在 metaclass 中使用，以实现：
-    1. ttl = None，不缓存
-    2. ttl is callable，条件缓存
-    3. 缓存 ttl 秒
+    For use in metaclass to implement:
+    1. ttl = None: no caching
+    2. ttl is callable: conditional caching
+    3. Cache for ttl seconds
     """
     def __init__(self, func=None, fset=None, ttl=None):
         self.fset = fset
@@ -49,9 +49,9 @@ class my_property:
 
             value = self.func(obj)
 
-            # 如果定义了条件缓存, ttl 是一个函数，返回要缓存多久；返回 0 代表不要缓存
+            # If conditional caching is defined, ttl is a function returning cache duration; 0 means don't cache
             if callable(self.ttl):
-                # 而且条件缓存说不要缓存，那就直接返回，不要设置 local
+                # If conditional caching says not to cache, return directly without setting local
                 timeout = self.ttl(value)
                 self._check_timeout(timeout)
 
@@ -60,7 +60,7 @@ class my_property:
                 elif timeout > 0:
                     self.local.value = (value, now + timeout)
             else:
-                # ttl 是一个数字
+                # ttl is a number
                 self.local.value = (value, now + self.ttl)
             return value
         else:
