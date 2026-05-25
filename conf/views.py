@@ -212,14 +212,11 @@ class TestCasePruneAPI(APIView):
 class ReleaseNotesAPI(APIView):
     def get(self, request):
         try:
-            resp = requests.get("https://raw.githubusercontent.com/QingdaoU/OnlineJudge/master/docs/data.json?_=" + str(time.time()),
-                                timeout=3)
-            releases = resp.json()
-        except (RequestException, ValueError):
+            with open("docs/data.json", "r") as f:
+                releases = json.load(f)
+        except (IOError, ValueError):
             return self.success()
-        with open("docs/data.json", "r") as f:
-            local_version = json.load(f)["update"][0]["version"]
-        releases["local_version"] = local_version
+        releases["local_version"] = releases["update"][0]["version"]
         return self.success(releases)
 
 
